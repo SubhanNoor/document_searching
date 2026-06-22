@@ -72,10 +72,46 @@ Wires both hooks to `PreToolUse` and `PostToolUse` events on the `Write` tool.
 
 ---
 
+---
+
+## Milestone 2 — Ingestion & Chunking ✅ COMPLETE
+
+### Module 2.0 — `converter.py` ✅ PASS
+
+**What was built:**
+Converts any supported file (or all files in a folder) to `.txt` before ingestion.
+
+**Key decisions:**
+- Accepts a single file path or a folder — detected with `os.path.isfile`
+- Whitelist: `.txt`, `.pdf`, `.docx`, `.md` — anything else gets a `[WARN]` and is skipped
+- `.doc` is whitelisted for detection but skipped with a warning — `python-docx` only reads `.docx`
+- Idempotent: if a `.txt` already exists next to the original, skips conversion
+- Returns list of ready `.txt` paths so `ingest()` uses them directly without re-walking
+
+**Debugger result:** PASS (after fix — `.doc` routed to warning+skip)
+
+---
+
+### Module 2.1 — `ingestion.py` ✅ PASS
+
+**What was built:**
+Reads `.txt` files and splits them into structured chunks with source metadata.
+
+**Key decisions:**
+- `ingest(path)` uses return value of `convert_to_txt()` directly — avoids re-walking and fixes single-file input for non-txt formats
+- Paragraph-aware chunking: blank-line split → tiny para merge → size routing
+- Tiny paragraph leftover at end: attached to `merged[-1]` (not a new standalone chunk); falls back to standalone only if document had no other paragraphs
+- `_split_by_overlap("")` guard: returns `[]` immediately to prevent infinite loop
+- Each chunk dict: `{"text": str, "source": filename, "chunk_index": int}`
+
+**Debugger result:** PASS (after 3 fixes)
+
+---
+
 ## Up Next
 
-**Milestone 2 — Ingestion & Chunking**
-- Module 2.1: `ingestion.py`
-  - `load_documents(folder)` — read PDFs and .txt files
-  - `chunk_text(doc, chunk_size, overlap)` — paragraph-aware chunking strategy
-  - `ingest_folder(folder)` — orchestrate load + chunk, return flat chunk list
+**Milestone 3 — Embedding**
+- Module 3.1: `embedding.py`
+  - Load `SentenceTransformer` once at module level
+  - `embed(texts)` — same function for both indexing and querying
+  - Export `EMBEDDING_DIM` constant

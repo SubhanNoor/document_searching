@@ -44,34 +44,36 @@ why 150-char overlap). Written first because every subsequent module depends on 
 
 ---
 
-## Milestone 2 — Ingestion & Chunking
+## Milestone 2 — Ingestion & Chunking ✅ COMPLETE
 
 **Goal:** Turn raw PDF/text files into structured, overlapping text chunks that
 carry source metadata.
 
-### Module 2.1 — `ingestion.py`
+### Module 2.0 — `converter.py` ✅ DONE
 
 **Tasks:**
-- `load_documents(folder: str) -> list[dict]`
-  - Walk `folder`, detect `.pdf` vs `.txt` by extension
-  - For `.pdf`: use `pypdf.PdfReader`, extract page text
-  - For `.txt`: plain `open().read()`
-  - Return list of `{"text": str, "source": filename}` dicts
-- `chunk_text(doc: dict) -> list[dict]`
-  - Split doc text into paragraphs (blank-line separated)
-  - Merge consecutive paragraphs shorter than `PARAGRAPH_MIN` with the next
-  - paragraph <= `PARAGRAPH_MAX` → keep as one chunk
-  - paragraph > `PARAGRAPH_MAX` → split by sentence (`'. '`), group sentences up to `CHUNK_SIZE` chars; if a single sentence still exceeds `CHUNK_SIZE` → char-split with `CHUNK_OVERLAP`
-  - Each output dict: `{"text": chunk_str, "source": doc["source"], "chunk_index": int}`
-- `ingest_folder(folder: str) -> list[dict]`
-  - Calls `load_documents` then `chunk_text` for every doc; returns flat chunk list
+- `convert_to_txt(path: str) -> list[str]` — accepts file or folder, walks with `os.walk`, converts supported formats to `.txt`, returns list of ready `.txt` paths
+- Whitelist: `.txt`, `.pdf`, `.docx`, `.md` — skips anything else with a warning
+- `.doc` whitelisted for detection but skipped with warning (python-docx cannot read binary `.doc`)
+- Idempotent: skips conversion if `.txt` already exists
 
-**Module description:**
-Handles all I/O and text splitting. No embeddings, no DB calls here. Overlap is
-critical: without it a fact split across two chunks would be missed by retrieval.
-The `chunk_index` field lets later modules reconstruct the order of chunks within
-a document if needed. Must import `PARAGRAPH_MAX`, `PARAGRAPH_MIN`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, `DOCUMENTS_DIR`
-from `config.py`.
+**Debugger result:** PASS (after fix — `.doc` routed to warning+skip instead of python-docx)
+
+### Module 2.1 — `ingestion.py` ✅ DONE
+
+**Tasks:**
+- `load_documents(path: str) -> list[dict]` — accepts file or folder, reads `.txt` files
+- `chunk_text(doc: dict) -> list[dict]` — paragraph-aware chunking strategy
+- `ingest(path: str) -> list[dict]` — calls `convert_to_txt`, reads returned `.txt` paths, chunks each doc, returns flat chunk list
+
+**Chunking strategy:**
+- Split text by blank lines into paragraphs
+- Tiny paragraphs `< PARAGRAPH_MIN`: merged forward into the next paragraph; if leftover at end, attached to previous chunk (or kept alone if document had no other chunks)
+- paragraph `<= PARAGRAPH_MAX` → one chunk
+- paragraph `> PARAGRAPH_MAX` → sentence-split by `'. '`, group up to `CHUNK_SIZE`; oversized single sentences → `_split_by_overlap()` with `CHUNK_OVERLAP`
+- `_split_by_overlap("")` returns `[]` immediately (infinite loop guard)
+
+**Debugger result:** PASS (after 3 fixes — empty string guard, buffer merge direction, ingest using convert return value directly)
 
 ---
 
