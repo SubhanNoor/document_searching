@@ -5,28 +5,42 @@ before moving to the next. Each module is one `.py` file.
 
 ---
 
-## Milestone 1 — Foundation
+## Milestone 1 — Foundation ✅ COMPLETE
 
 **Goal:** Lay the project skeleton so every later module has stable constants
 and a known folder structure to reference.
 
-### Module 1.1 — `config.py`
+### Module 1.1 — `config.py` ✅ DONE
 
 **Tasks:**
-- Define `CHUNK_SIZE = 1000`
-- Define `CHUNK_OVERLAP = 150`
+- Define `PARAGRAPH_MAX = 3000` — paragraphs at or below this are kept as one chunk
+- Define `PARAGRAPH_MIN = 100` — paragraphs below this are merged with the next
+- Define `CHUNK_SIZE = 1000` — target size when grouping sentences or doing char-level split
+- Define `CHUNK_OVERLAP = 150` — overlap used only when a single sentence exceeds `CHUNK_SIZE`
 - Define `TOP_K = 6`
 - Define `EMBED_MODEL = "all-MiniLM-L6-v2"`
-- Define `GEN_MODEL = "claude-opus-4-8"`
+- Define `GEN_MODEL = "claude-opus-4-5"` (update tomorrow if needed)
 - Define `DOCUMENTS_DIR = "documents/"`
 - Define `CHROMA_DIR = "chroma_db/"`
 - Define `COLLECTION_NAME = "docs"`
+
+**Chunking strategy (decided during M1, implemented in M2):**
+```
+For each paragraph:
+  - paragraph <= 3000 chars  → keep as one chunk
+  - paragraph > 3000 chars   → split by sentence ('. ')
+                               group sentences up to ~1000 chars per chunk
+                               if a single sentence > 1000 chars → char-split with 1000/150 overlap
+  - paragraph < 100 chars    → merge with next paragraph
+```
 
 **Module description:**
 A single file of named constants. No functions, no classes. All other modules
 import from here so that changing a number in one place propagates everywhere.
 WHY-comments must explain why each value was chosen (e.g., why 1000-char chunks,
 why 150-char overlap). Written first because every subsequent module depends on it.
+
+**Debugger result:** FAIL → PASS. Fixed `GEN_MODEL` from invalid `"claude-opus-4-8"` to `"claude-opus-4-5"`.
 
 ---
 
@@ -43,8 +57,11 @@ carry source metadata.
   - For `.pdf`: use `pypdf.PdfReader`, extract page text
   - For `.txt`: plain `open().read()`
   - Return list of `{"text": str, "source": filename}` dicts
-- `chunk_text(doc: dict, chunk_size: int, overlap: int) -> list[dict]`
-  - Slide a window of `chunk_size` chars with `overlap` step-back
+- `chunk_text(doc: dict) -> list[dict]`
+  - Split doc text into paragraphs (blank-line separated)
+  - Merge consecutive paragraphs shorter than `PARAGRAPH_MIN` with the next
+  - paragraph <= `PARAGRAPH_MAX` → keep as one chunk
+  - paragraph > `PARAGRAPH_MAX` → split by sentence (`'. '`), group sentences up to `CHUNK_SIZE` chars; if a single sentence still exceeds `CHUNK_SIZE` → char-split with `CHUNK_OVERLAP`
   - Each output dict: `{"text": chunk_str, "source": doc["source"], "chunk_index": int}`
 - `ingest_folder(folder: str) -> list[dict]`
   - Calls `load_documents` then `chunk_text` for every doc; returns flat chunk list
@@ -53,7 +70,7 @@ carry source metadata.
 Handles all I/O and text splitting. No embeddings, no DB calls here. Overlap is
 critical: without it a fact split across two chunks would be missed by retrieval.
 The `chunk_index` field lets later modules reconstruct the order of chunks within
-a document if needed. Must import `CHUNK_SIZE`, `CHUNK_OVERLAP`, `DOCUMENTS_DIR`
+a document if needed. Must import `PARAGRAPH_MAX`, `PARAGRAPH_MIN`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, `DOCUMENTS_DIR`
 from `config.py`.
 
 ---
