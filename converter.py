@@ -9,7 +9,8 @@ ALLOWED_EXTENSIONS = {".txt", ".pdf", ".doc", ".docx", ".md"}
 
 
 def _collect_files(path: str) -> list[str]:
-    """Return all file paths under path (file or folder)."""
+    if not os.path.exists(path):
+        raise RuntimeError(f"[converter] Path does not exist: {path}")
     if os.path.isfile(path):
         return [path]
     collected = []
@@ -20,24 +21,33 @@ def _collect_files(path: str) -> list[str]:
 
 
 def _pdf_to_txt(src: str, dest: str) -> None:
-    reader = pypdf.PdfReader(src)
-    # Concatenate all pages — one newline between pages preserves paragraph breaks.
-    text = "\n".join(page.extract_text() or "" for page in reader.pages)
-    with open(dest, "w", encoding="utf-8") as f:
-        f.write(text)
+    try:
+        reader = pypdf.PdfReader(src)
+        # Concatenate all pages — one newline between pages preserves paragraph breaks.
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        with open(dest, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception as e:
+        raise RuntimeError(f"[converter] Failed to convert PDF '{src}': {e}") from e
 
 
 def _docx_to_txt(src: str, dest: str) -> None:
-    doc = docx.Document(src)
-    # Each paragraph in a docx maps cleanly to a paragraph in plain text.
-    text = "\n".join(p.text for p in doc.paragraphs)
-    with open(dest, "w", encoding="utf-8") as f:
-        f.write(text)
+    try:
+        doc = docx.Document(src)
+        # Each paragraph in a docx maps cleanly to a paragraph in plain text.
+        text = "\n".join(p.text for p in doc.paragraphs)
+        with open(dest, "w", encoding="utf-8") as f:
+            f.write(text)
+    except Exception as e:
+        raise RuntimeError(f"[converter] Failed to convert DOCX '{src}': {e}") from e
 
 
 def _md_to_txt(src: str, dest: str) -> None:
-    # Markdown is already plain text; copy as-is so downstream reads one format only.
-    shutil.copy2(src, dest)
+    try:
+        # Markdown is already plain text; copy as-is so downstream reads one format only.
+        shutil.copy2(src, dest)
+    except Exception as e:
+        raise RuntimeError(f"[converter] Failed to copy markdown '{src}': {e}") from e
 
 
 def convert_to_txt(path: str) -> list[str]:

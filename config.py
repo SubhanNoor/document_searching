@@ -26,9 +26,11 @@ TOP_K = 6
 # different models produce incompatible vector spaces.
 EMBED_MODEL = "all-MiniLM-L6-v2"
 
-# Claude model used for the final answer generation step.
-# TODO: update this value tomorrow before running generation.
-GEN_MODEL = "claude-opus-4-5"
+# Model used for generation — routed through OpenRouter's OpenAI-compatible API.
+GEN_MODEL = "openai/gpt-oss-120b:free"
+
+# OpenRouter base URL — drop-in replacement for openai.OpenAI(base_url=...).
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # --- Paths ---
 

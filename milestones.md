@@ -77,12 +77,12 @@ carry source metadata.
 
 ---
 
-## Milestone 3 — Embedding
+## Milestone 3 — Embedding ✅ COMPLETE
 
 **Goal:** Provide a single, reusable embedding interface so the same model is
 used for both indexing and querying (the only correct approach for cosine search).
 
-### Module 3.1 — `embedding.py`
+### Module 3.1 — `embedding.py` ✅ DONE
 
 **Tasks:**
 - Load `SentenceTransformer(EMBED_MODEL)` once at module level (not per call)
@@ -99,62 +99,86 @@ different models would silently break retrieval — this single file prevents th
 
 ---
 
-## Milestone 4 — Vector Store
+## Milestone 4 — Vector Store ✅ COMPLETE
 
 **Goal:** Persist embeddings and metadata in ChromaDB so the index survives
-between runs.
+between runs. Chunks are scoped to a session so multiple users never see each
+other's documents.
 
-### Module 4.1 — `vector_store.py`
+### Module 4.1 — `vector_store.py` ✅ DONE
 
 **Tasks:**
 - `get_collection() -> chromadb.Collection`
   - Open (or create) a persistent `chromadb.PersistentClient(CHROMA_DIR)`
   - Return `client.get_or_create_collection(COLLECTION_NAME)`
 - `add_chunks(chunks: list[dict]) -> None`
-  - Build deterministic IDs: `f"{chunk['source']}__chunk{chunk['chunk_index']}"`
+  - Build deterministic IDs: `f"{chunk['session_id']}__{chunk['document_id']}__chunk{chunk['chunk_index']}"`
   - Embed all chunks via `embedding.embed()`
   - Call `collection.add(ids, embeddings, documents, metadatas)` in one batch
+  - Metadata stores `source`, `chunk_index`, `session_id`, `document_id`
   - Idempotent: re-ingesting the same file does not create duplicates (same IDs)
+- `delete_session(session_id: str) -> None`
+  - Query ChromaDB for all chunk IDs where metadata `session_id == session_id`
+  - Delete them in one call — used by the cleanup task on session expiry
 - `chunk_count() -> int`
   - Returns `collection.count()`
 
+---
+
+## Milestone 4.2 — Session Management ✅ COMPLETE
+
+### Module 4.2 — `session_manager.py` ✅ DONE
+
+**Tasks:**
+- `touch(session_id: str) -> None`
+  - Update the last-activity timestamp for a session (called on upload and on ask)
+- `cleanup_expired() -> None`
+  - Check every tracked session; if inactive > 15 min, delete uploaded files from
+    disk and call `vector_store.delete_session(session_id)`
+- `start_cleanup_loop() -> None`
+  - Spawn a daemon thread that calls `cleanup_expired()` every 5 minutes
+
 **Module description:**
-All ChromaDB interaction lives here. The deterministic ID scheme means running
-`ingest` twice is safe — ChromaDB upserts on matching IDs. Metadata stores
-`source` and `chunk_index` so retrieval results can be traced back to origin
-files. Must import `CHROMA_DIR`, `COLLECTION_NAME` from `config.py` and
-`embed` from `embedding.py`.
+Owns the session activity tracker (a dict of `session_id → last_seen datetime`).
+Keeping this separate means `pipeline.py` and `app.py` only call `touch()` —
+they never manage cleanup directly. The daemon thread dies automatically when the
+main process exits.
 
 ---
 
-## Milestone 5 — Retrieval
+## Milestone 4.3 — Update `ingestion.py` ✅ COMPLETE
+
+**Change:** `ingest()` now accepts `session_id: str`. For each file it generates
+a `document_id` (UUID4). Both are added to every chunk dict so downstream modules
+can build correct IDs and filter by session.
+
+---
+
+## Milestone 5 — Retrieval ✅ COMPLETE
 
 **Goal:** Given a natural-language question, find the most relevant chunks
-across all ingested documents.
+scoped to the caller's session.
 
-### Module 5.1 — `retrieval.py`
+### Module 5.1 — `retrieval.py` ✅ DONE
 
 **Tasks:**
-- `retrieve(question: str, k: int = TOP_K) -> list[dict]`
+- `retrieve(question: str, session_id: str, k: int = TOP_K) -> list[dict]`
   - Embed the question with `embedding.embed([question])[0]`
-  - Call `collection.query(query_embeddings=[q_vec], n_results=k)`
+  - Call `collection.query(query_embeddings=[q_vec], n_results=k, where={"session_id": session_id})`
   - Return list of `{"text": str, "source": str, "chunk_index": int, "distance": float}`
 
 **Module description:**
-Single function. ChromaDB queries the whole collection, so results naturally
-span multiple documents — no per-document loop needed. Distance (lower = more
-similar for L2; higher for cosine) is returned so the UI can optionally show
-relevance scores. Imports `TOP_K` from `config.py`, `embed` from `embedding.py`,
-and `get_collection` from `vector_store.py`.
+The `where` filter ensures one user's query never returns another user's chunks.
+Distance is returned so the UI can optionally show relevance scores.
 
 ---
 
-## Milestone 6 — Citation
+## Milestone 6 — Citation ✅ COMPLETE
 
 **Goal:** Inject source attribution into chunk text before the LLM reads it, so
 the model copies tags rather than guessing them.
 
-### Module 6.1 — `citation.py`
+### Module 6.1 — `citation.py` ✅ DONE
 
 **Tasks:**
 - `attach_citations(chunks: list[dict]) -> list[str]`
@@ -170,12 +194,11 @@ and naturally echoes the tag in its answer without any special prompting beyond
 
 ---
 
-## Milestone 7 — Generation
+## Milestone 7 — Generation ✅ COMPLETE
 
-**Goal:** Call the Claude API with a well-engineered prompt and return a single
-cited answer.
+**Goal:** Call the LLM with a well-engineered prompt and return a single cited answer.
 
-### Module 7.1 — `generation.py`
+### Module 7.1 — `generation.py` ✅ DONE
 
 **Tasks:**
 - Load `ANTHROPIC_API_KEY` from `.env` via `python-dotenv`
@@ -197,11 +220,11 @@ this file — no other module needs it.
 
 ---
 
-## Milestone 8 — Pipeline Orchestration
+## Milestone 8 — Pipeline Orchestration ✅ COMPLETE
 
 **Goal:** Compose all modules into two simple public functions.
 
-### Module 8.1 — `pipeline.py`
+### Module 8.1 — `pipeline.py` ✅ DONE
 
 **Tasks:**
 - `ingest(folder: str = DOCUMENTS_DIR) -> int`
@@ -222,27 +245,25 @@ downstream consumers need to know about.
 
 ---
 
-## Milestone 9 — CLI
+## Milestone 9 — Dev Test Script ✅ COMPLETE
 
-**Goal:** Expose the pipeline as a usable command-line tool.
+**Goal:** A hardcoded test script to run ingest + ask end-to-end during development. Frontend (app.py) will handle real user uploads.
 
-### Module 9.1 — `main.py`
+### Module 9.1 — `main.py` ✅ DONE
 
 **Tasks:**
-- Parse `sys.argv[1]` for subcommand (`ingest` | `ask`)
-- `ingest` subcommand: call `pipeline.ingest()`, print chunk count
-- `ask` subcommand: require `sys.argv[2]` as question string, call `pipeline.ask()`,
-  print result to stdout
-- Print usage message for unknown subcommands
+- Hardcode `FILE_PATH`, `QUESTION`, and `SESSION_ID` at the top
+- Call `pipeline.ingest(FILE_PATH, SESSION_ID)`, print chunk count
+- Call `pipeline.ask(QUESTION, SESSION_ID)`, print answer
+- Wrap in `main()`, guard with `if __name__ == "__main__"`
 
 **Module description:**
-Pure entry point. Uses only `sys.argv` and `print` — no argparse needed at this
-scale. No business logic; all real work delegated to `pipeline.py`. Must be
-runnable as `python main.py ingest` and `python main.py ask "question"`.
+Dev/test harness only. No CLI argument parsing — the real entry point for users
+will be `app.py` (Streamlit). Run from the project root with `python main.py`.
 
 ---
 
-## Milestone 10 — Streamlit UI
+## Milestone 10 — Streamlit UI ⏭️ SKIPPED (build frontend separately)
 
 **Goal:** Provide a graphical interface for non-CLI users.
 

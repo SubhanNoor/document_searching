@@ -108,10 +108,158 @@ Reads `.txt` files and splits them into structured chunks with source metadata.
 
 ---
 
-## Up Next
+## Milestone 3 — Embedding ✅ COMPLETE
 
-**Milestone 3 — Embedding**
-- Module 3.1: `embedding.py`
-  - Load `SentenceTransformer` once at module level
-  - `embed(texts)` — same function for both indexing and querying
-  - Export `EMBEDDING_DIM` constant
+### Module 3.1 — `embedding.py` ✅ PASS
+
+**What was built:**
+Thin wrapper around SentenceTransformer that provides a single `embed()` function used by both indexing and querying.
+
+**Key decisions:**
+- `_model` loaded at module level — cold-start cost paid once per process, not per call
+- `EMBEDDING_DIM` inferred at import time via a dummy encode — no hardcoded 384
+- `convert_to_list=True` converts numpy arrays to plain Python lists for ChromaDB compatibility
+- Same `embed()` function used for both chunk batches and single questions — model consistency guaranteed
+
+**Debugger result:** PASS (no fixes needed)
+
+---
+
+## Milestone 4 — Vector Store & Session Management ✅ COMPLETE
+
+### Module 4.1 — `vector_store.py` ✅ PASS
+
+**What was built:**
+All ChromaDB interaction — open/create collection, add chunks, delete by session, count chunks.
+
+**Key decisions:**
+- Three-part chunk ID: `session_id__document_id__chunk{i}` — prevents collisions across sessions and identical filenames
+- Metadata stores `source`, `chunk_index`, `session_id`, `document_id` — enables session-scoped filtering at query time
+- `add()` upserts on matching IDs — re-ingesting the same file is safe
+- `delete_session()` uses `include=[]` to fetch only IDs (no embeddings/documents) for speed
+
+**Debugger result:** PASS (no fixes needed, confirmed against chromadb 1.5.9)
+
+---
+
+### Module 4.2 — `session_manager.py` ✅ PASS
+
+**What was built:**
+In-memory session activity tracker with background cleanup thread.
+
+**Key decisions:**
+- `touch(session_id)` resets the inactivity countdown on every upload and question
+- `cleanup_expired()` iterates a snapshot of `_sessions` so mid-loop deletion is safe
+- TTL = 15 minutes, cleanup sweep every 5 minutes → data lives 15–20 min after last activity
+- Daemon thread dies automatically with the main process — no shutdown logic needed
+- GIL protects concurrent `touch()` / `cleanup_expired()` dict ops on CPython
+
+**Debugger result:** PASS (no fixes needed)
+
+---
+
+### Module 4.3 — `ingestion.py` update ✅ PASS
+
+**What changed:**
+- `ingest()` now accepts `session_id: str`
+- Generates `document_id = uuid4()` per file (not per chunk) — two users uploading the same filename never collide
+- Both `session_id` and `document_id` attached to every chunk dict
+
+**Debugger result:** PASS (no fixes needed)
+
+---
+
+## Milestone 5 — Retrieval ✅ COMPLETE
+
+### Module 5.1 — `retrieval.py` ✅ PASS
+
+**What was built:**
+Single `retrieve()` function — embeds the question, queries ChromaDB filtered by `session_id`, returns top-k chunks with source and distance.
+
+**Key decisions:**
+- `where={"session_id": session_id}` scopes every query to the caller's session — cross-user leakage is impossible
+- Returns `distance` so the UI can optionally show relevance scores
+- Empty session (no chunks yet) returns `[]` cleanly — no exception
+
+**Debugger result:** FAIL on `embedding.py` (not `retrieval.py`) — `convert_to_list=True` removed in sentence-transformers v5. Fixed: replaced with `.tolist()`. `retrieval.py` itself passed all checks.
+
+---
+
+## Milestone 6 — Citation ✅ COMPLETE
+
+### Module 6.1 — `citation.py` ✅ PASS
+
+**What was built:**
+Single function that prepends `[Source: filename]` to each chunk's text before the LLM sees it.
+
+**Key decisions:**
+- Tag baked into the string the LLM receives — model echoes it naturally without special post-processing
+- Returns `list[str]` not `list[dict]` — ready to drop straight into the generation prompt
+- Empty list raises `ValueError` with a clear message
+
+**Debugger result:** PASS (no fixes needed)
+
+---
+
+## Milestone 7 — Generation ✅ COMPLETE
+
+### Module 7.1 — `generation.py` ✅ PASS
+
+**What was built:**
+Calls OpenRouter (OpenAI-compatible API) with a system prompt and numbered cited chunks, returns the model's answer string.
+
+**Key decisions:**
+- Uses `openai` SDK with `base_url=OPENROUTER_BASE_URL` — drop-in replacement, no custom HTTP
+- `OPENROUTER_API_KEY` loaded from `.env` via `python-dotenv`; missing key raises `RuntimeError` at import time
+- `client` created once at module level — connection pool reused across calls
+- System prompt tells model to keep `[Source: …]` tags inline and admit when an answer isn't in the sources
+- Chunks are numbered (1, 2, 3…) in the user message so the model can reference them precisely
+- `response.choices[0].message.content` checked for `None` — model returning no text raises `RuntimeError`
+
+**Debugger result:** FAIL → PASS. Fixed: added `None` check on `response.choices[0].message.content`.
+
+---
+
+## Milestone 8 — Pipeline Orchestration ✅ COMPLETE
+
+### Module 8.1 — `pipeline.py` ✅ PASS
+
+**What was built:**
+Glue module with two public functions: `ingest()` and `ask()`. All logic lives in upstream modules.
+
+**Key decisions:**
+- `ingest()` returns `len(chunks)` (the list already in scope) — `chunk_count()` would return the global total, not the per-file count
+- `ask()` returns a clean string `"No relevant sources found…"` when retrieval returns empty — avoids citation/generation failing on empty input
+- Both functions catch `RuntimeError` and re-raise unchanged; any other exception is wrapped as `RuntimeError` with `[pipeline]` prefix
+- `session_manager.touch()` called on both ingest and ask to reset the TTL
+
+**Debugger result:** FAIL → PASS. Fixed two issues: (1) `chunk_count()` returning global total replaced with `len(chunks)`; (2) ChromaDB `n_results` cap added to `retrieval.py` — crashes if `n_results > session chunk count`.
+
+---
+
+## Milestone 9 — Dev Test Script ✅ COMPLETE
+
+### Module 9.1 — `main.py` ✅ PASS
+
+**What was built:**
+Hardcoded dev/test script: ingests a file at a fixed path, asks a fixed question, prints the answer.
+
+**Key decisions:**
+- `FILE_PATH` is an absolute path set by the developer — relative paths work only if run from project root
+- `SESSION_ID = "dev-session"` — fixed for single-developer use
+- `RuntimeError` caught separately for ingest and ask so a failed ingest doesn't attempt an ask
+- No `sys.argv` — real user-facing entry point will be `app.py` (Streamlit)
+
+**Debugger result:** PASS (no fixes needed)
+
+---
+
+## Milestone 10 — Streamlit UI ⏭️ SKIPPED
+
+User will build the frontend separately. The pipeline is fully functional and testable via `main.py`.
+
+---
+
+## Current State
+
+**All backend modules complete.** Run `python main.py` from the project root to test end-to-end.

@@ -68,7 +68,29 @@ Proceed with fix? (yes / edit)
 
 Only apply the fix after the user confirms.
 
-### 4. Comment style
+### 4. Exception handling (mandatory in every module)
+
+Every function that touches I/O, external libraries, or network calls must wrap
+its work in a `try/except` and raise a clear, human-readable error that names
+the file, module, and what went wrong. Rules:
+
+- Catch the **specific** exception (e.g. `FileNotFoundError`, `chromadb.errors.*`,
+  `anthropic.APIError`) — never bare `except:` or `except Exception:` without re-raising.
+- Always include the original error in the message: `f"...: {e}"`.
+- Re-raise as `RuntimeError` with context so the caller (and the user) knows
+  exactly which step failed without reading a raw traceback.
+- stdlib functions that are guaranteed not to fail (e.g. `str.split`, `len`) do
+  not need wrapping.
+
+Example pattern:
+```python
+try:
+    result = some_library.call()
+except SomeSpecificError as e:
+    raise RuntimeError(f"[module_name] Step failed for <context>: {e}") from e
+```
+
+### 5. Comment style
 
 Every non-obvious block must have a WHY-comment (this is a learning project).
 - Explain the reason, not the mechanics.

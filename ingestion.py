@@ -1,13 +1,10 @@
 import os
+import uuid
 from config import PARAGRAPH_MAX, PARAGRAPH_MIN, CHUNK_SIZE, CHUNK_OVERLAP
 from converter import convert_to_txt
 
 
 def load_documents(path: str) -> list[dict]:
-    """
-    Load all .txt files at path (single file or folder).
-    Returns list of {"text": str, "source": filename} dicts.
-    """
     if os.path.isfile(path):
         txt_files = [path]
     else:
@@ -19,14 +16,17 @@ def load_documents(path: str) -> list[dict]:
 
     docs = []
     for filepath in txt_files:
-        with open(filepath, encoding="utf-8") as f:
-            text = f.read()
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            raise RuntimeError(f"[ingestion] Could not read file '{filepath}': {e}") from e
         docs.append({"text": text, "source": os.path.basename(filepath)})
     return docs
 
 
 def _split_by_overlap(text: str) -> list[str]:
-    """Character-level split with CHUNK_OVERLAP for sentences that exceed CHUNK_SIZE."""
+    # Guard against infinite loop — empty string produces no chunks.
     if not text:
         return []
     chunks = []
@@ -40,13 +40,6 @@ def _split_by_overlap(text: str) -> list[str]:
 
 
 def chunk_text(doc: dict) -> list[dict]:
-    """
-    Split doc text into chunks using a paragraph-aware strategy:
-      - paragraphs < PARAGRAPH_MIN  → merged with the next paragraph
-      - paragraphs <= PARAGRAPH_MAX → kept as one chunk
-      - paragraphs > PARAGRAPH_MAX  → sentence-split, grouped up to CHUNK_SIZE;
-                                      sentences still > CHUNK_SIZE get char-split
-    """
     raw_paragraphs = doc["text"].split("\n\n")
 
     # Merge tiny paragraphs (headings, stray lines) into the following paragraph.
@@ -86,14 +79,11 @@ def chunk_text(doc: dict) -> list[dict]:
                 if not sentence:
                     continue
                 if len(sentence) > CHUNK_SIZE:
-                    # Single sentence too large — flush current group first.
                     if group:
                         chunks.append(group.strip())
                         group = ""
-                    # Then char-split the oversized sentence.
                     chunks.extend(_split_by_overlap(sentence))
                 elif len(group) + len(sentence) + 2 > CHUNK_SIZE:
-                    # Adding this sentence would overflow the group.
                     chunks.append(group.strip())
                     group = sentence + ". "
                 else:
@@ -108,22 +98,35 @@ def chunk_text(doc: dict) -> list[dict]:
     ]
 
 
-def ingest(path: str) -> list[dict]:
-    """
-    Full ingestion pipeline for a file or folder:
-      1. Convert all supported formats to .txt
-      2. Load the .txt files
-      3. Chunk each document
-    Returns a flat list of chunk dicts.
-    """
-    txt_paths = convert_to_txt(path)
+def ingest(path: str, session_id: str) -> list[dict]:
+    try:
+        txt_paths = convert_to_txt(path)
+    except RuntimeError:
+        raise  # converter already provides a clear message — pass it up unchanged
+
+    if not txt_paths:
+        raise RuntimeError(f"[ingestion] No supported files found at '{path}'")
+
     docs = []
     for filepath in txt_paths:
-        with open(filepath, encoding="utf-8") as f:
-            text = f.read()
-        docs.append({"text": text, "source": os.path.basename(filepath)})
+        try:
+            with open(filepath, encoding="utf-8") as f:
+                text = f.read()
+        except OSError as e:
+            raise RuntimeError(f"[ingestion] Could not read file '{filepath}': {e}") from e
+        # UUID per file so two users uploading the same filename never collide in ChromaDB.
+        docs.append({
+            "text": text,
+            "source": os.path.basename(filepath),
+            "document_id": str(uuid.uuid4()),
+        })
+
     all_chunks = []
     for doc in docs:
-        all_chunks.extend(chunk_text(doc))
+        for chunk in chunk_text(doc):
+            chunk["session_id"] = session_id
+            chunk["document_id"] = doc["document_id"]
+            all_chunks.append(chunk)
+
     print(f"[OK] Ingested {len(docs)} document(s) → {len(all_chunks)} chunks")
     return all_chunks
