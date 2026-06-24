@@ -1,7 +1,7 @@
 import time
 import threading
 from datetime import datetime, timedelta
-import vector_store
+from store import vector_store
 
 _sessions: dict[str, datetime] = {}
 _SESSION_TTL = timedelta(minutes=15)

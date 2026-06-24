@@ -1,5 +1,5 @@
 from sentence_transformers import SentenceTransformer
-from config import EMBED_MODEL
+from core.config import EMBED_MODEL
 
 try:
     # Loaded once so every call to embed() reuses the same in-memory model.

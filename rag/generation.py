@@ -1,7 +1,7 @@
 import os
 import openai
 from dotenv import load_dotenv
-from config import GEN_MODEL, OPENROUTER_BASE_URL
+from core.config import GEN_MODEL, OPENROUTER_BASE_URL
 
 load_dotenv()
 

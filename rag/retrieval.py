@@ -1,6 +1,6 @@
-from config import TOP_K
-from embedding import embed
-from vector_store import get_collection
+from core.config import TOP_K
+from core.embedding import embed
+from store.vector_store import get_collection
 
 
 def retrieve(question: str, session_id: str, k: int = TOP_K) -> list[dict]:

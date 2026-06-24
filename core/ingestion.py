@@ -1,7 +1,7 @@
 import os
 import uuid
-from config import PARAGRAPH_MAX, PARAGRAPH_MIN, CHUNK_SIZE, CHUNK_OVERLAP
-from converter import convert_to_txt
+from core.config import PARAGRAPH_MAX, PARAGRAPH_MIN, CHUNK_SIZE, CHUNK_OVERLAP
+from core.converter import convert_to_txt
 
 
 def load_documents(path: str) -> list[dict]:

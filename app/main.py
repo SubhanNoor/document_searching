@@ -1,4 +1,4 @@
-import pipeline
+from rag import pipeline
 
 # Hardcoded for dev testing — app.py will handle real user uploads via Streamlit.
 FILE_PATH = "/home/subhan/All/Subhan/Subhan_noor_CV.pdf"

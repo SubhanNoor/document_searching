@@ -1,6 +1,6 @@
 import chromadb
-from config import CHROMA_DIR, COLLECTION_NAME
-from embedding import embed
+from core.config import CHROMA_DIR, COLLECTION_NAME
+from core.embedding import embed
 
 
 def get_collection() -> chromadb.Collection:

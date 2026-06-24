@@ -1,9 +1,6 @@
-import ingestion
-import vector_store
-import retrieval
-import citation
-import generation
-import session_manager
+from core import ingestion
+from store import vector_store, session_manager
+from rag import retrieval, citation, generation
 
 
 def ingest(path: str, session_id: str) -> int:

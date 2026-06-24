@@ -32,6 +32,23 @@ GEN_MODEL = "openai/gpt-oss-120b:free"
 # OpenRouter base URL — drop-in replacement for openai.OpenAI(base_url=...).
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
+# --- Upload validation ---
+
+# Maximum size for a single file (standalone or inside a zip), in bytes.
+MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
+# Maximum combined/total upload size (whole zip, or all individual files), in bytes.
+MAX_TOTAL_SIZE = 50 * 1024 * 1024  # 50 MB
+
+# Maximum number of files allowed in one upload.
+MAX_FILE_COUNT = 20
+
+# If uncompressed_size / compressed_size exceeds this, treat as a zip bomb.
+MAX_ZIP_RATIO = 20
+
+# File types accepted for ingestion.
+ALLOWED_EXTENSIONS = {".pdf", ".txt", ".docx"}
+
 # --- Paths ---
 
 # Folder where the user drops PDF / .txt source files.
