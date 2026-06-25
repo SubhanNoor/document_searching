@@ -1,0 +1,11 @@
+anthropic
+openai
+sentence-transformers
+chromadb
+pypdf
+python-docx
+streamlit
+python-dotenv
+fastapi
+uvicorn
+python-multipart
