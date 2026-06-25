@@ -75,7 +75,10 @@ def validate_zip(path: str) -> list[str]:
                     f"exceeds the {MAX_TOTAL_SIZE // (1024 * 1024)} MB total limit."
                 )
 
-            tmp_dir = tempfile.mkdtemp()
+            # Extract into a sibling folder of the zip file so the caller's
+            # cleanup of the zip's parent dir also removes extracted files.
+            tmp_dir = os.path.join(os.path.dirname(path), "_extracted")
+            os.makedirs(tmp_dir, exist_ok=True)
             try:
                 zf.extractall(tmp_dir)
             except OSError as e:
