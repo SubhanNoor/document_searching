@@ -51,9 +51,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, delay: 0.1, ease: [0.16, 1, 0.3, 1] }}
-      className="border-t border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl px-4 py-3"
+      className="border-t border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl px-4 pt-2 pb-3"
     >
-      <div className="flex items-end gap-3 max-w-4xl mx-auto">
+      <div className="flex items-start gap-2 max-w-4xl mx-auto">
         <div className="flex-1 relative">
           <textarea
             ref={textareaRef}
@@ -68,7 +68,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               placeholder:text-zinc-400 dark:placeholder:text-zinc-600
               focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50
               disabled:opacity-50 disabled:cursor-not-allowed
-              transition-all duration-200
+              transition-all duration-200 overflow-hidden
               ${disabled ? 'border-zinc-200 dark:border-zinc-800' : 'border-zinc-200 dark:border-zinc-700'}
             `}
             placeholder={disabled ? 'Upload documents to start asking questions' : placeholder}
@@ -81,7 +81,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onClick={handleSubmit}
           disabled={!text.trim() || isLoading || disabled}
           className={`
-            flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center
+            flex-shrink-0 h-10 w-10 rounded-xl flex items-center justify-center mt-0.5
             transition-all duration-200
             ${text.trim() && !isLoading && !disabled
               ? 'bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-glow hover:shadow-lg'
@@ -91,9 +91,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           `}
         >
           {isLoading ? (
-            <Loader2 className="h-4.5 w-4.5 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
-            <Send className="h-4.5 w-4.5" />
+            <Send className="h-4 w-4" />
           )}
         </motion.button>
       </div>

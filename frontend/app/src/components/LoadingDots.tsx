@@ -6,7 +6,7 @@ interface LoadingDotsProps {
   text?: string;
 }
 
-export const LoadingDots: React.FC<LoadingDotsProps> = ({ text = 'Analyzing documents...' }) => {
+export const LoadingDots: React.FC<LoadingDotsProps> = ({ text = 'Thinking...' }) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}

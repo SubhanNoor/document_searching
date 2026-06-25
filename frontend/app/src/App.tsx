@@ -8,6 +8,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import { useTheme } from '@/hooks/useTheme';
 import { DocumentUpload } from '@/components/DocumentUpload';
@@ -17,59 +18,22 @@ import { ChatInput } from '@/components/ChatInput';
 import { EmptyState } from '@/components/EmptyState';
 import { LoadingDots } from '@/components/LoadingDots';
 import type { Document, ChatMessage as ChatMessageType, Source } from '@/types';
+import { uploadFile, askQuestion, clearSession } from '@/lib/api';
 
-// Demo content for initial load
-const DEMO_ANSWER = `Based on the contract analysis, here are the **key findings**:
-
-**1. Termination Clause**
-The agreement allows either party to terminate with 30 days written notice. However, Section 4.2 specifies that immediate termination is permitted in cases of material breach.
-
-**2. Payment Terms**
-Net 30 payment terms apply to all invoices. Late payments incur a 1.5% monthly service charge as outlined in Section 7.3.
-
-**3. Liability Cap**
-The total liability is capped at the total amount paid in the 12 months preceding the claim, per Section 12.1.
-
-**4. Data Handling**
-All customer data must be processed in accordance with GDPR requirements (Section 15), with specific provisions for data deletion within 30 days of contract termination.
-
-Would you like me to elaborate on any specific section?`;
-
-const DEMO_SOURCES: Source[] = [
-  {
-    id: '1',
-    documentId: 'doc1',
-    documentName: 'Service_Agreement_2024.pdf',
-    page: 4,
-    excerpt: 'Either party may terminate this Agreement by providing thirty (30) days prior written notice to the other party. Notwithstanding the foregoing, either party may terminate this Agreement immediately upon written notice if the other party materially breaches...',
-    relevance: 0.98,
-  },
-  {
-    id: '2',
-    documentId: 'doc1',
-    documentName: 'Service_Agreement_2024.pdf',
-    page: 7,
-    excerpt: 'All fees are net thirty (30) days from the invoice date. Late payments shall be subject to a service charge of one and one-half percent (1.5%) per month on the outstanding balance...',
-    relevance: 0.95,
-  },
-  {
-    id: '3',
-    documentId: 'doc1',
-    documentName: 'Service_Agreement_2024.pdf',
-    page: 12,
-    excerpt: "Company's total aggregate liability arising out of or relating to this Agreement shall not exceed the total amount paid by Customer to Company in the twelve (12) months preceding the event giving rise to liability...",
-    relevance: 0.92,
-  },
-];
 
 function App() {
   const { theme, toggleTheme } = useTheme();
   const [documents, setDocuments] = useState<Document[]>([]);
   const [messages, setMessages] = useState<ChatMessageType[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const streamingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cancel any in-flight streaming timer on unmount to prevent setState after unmount.
+  useEffect(() => () => { if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current); }, []);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -82,60 +46,74 @@ function App() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleFilesSelected = useCallback((files: File[]) => {
-    // Add files as uploading
+  const handleFilesSelected = useCallback(async (files: File[]) => {
+    // Guard: prevent concurrent uploads racing over sessionId.
+    if (isProcessing) return;
+
     const newDocs: Document[] = files.map((file) => ({
-      id: `doc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      id: crypto.randomUUID(),
       name: file.name,
       size: formatFileSize(file.size),
       type: file.name.endsWith('.pdf') ? 'pdf' : file.name.endsWith('.txt') ? 'txt' : 'docx',
-      status: 'uploading',
+      status: 'uploading' as const,
       progress: 0,
     }));
 
     setDocuments(prev => [...prev, ...newDocs]);
     setIsProcessing(true);
 
-    // Simulate upload progress
-    newDocs.forEach((doc, index) => {
-      const interval = setInterval(() => {
-        setDocuments(prev => prev.map(d => {
-          if (d.id === doc.id) {
-            const newProgress = Math.min((d.progress || 0) + 20, 100);
-            return {
-              ...d,
-              progress: newProgress,
-              status: newProgress >= 100 ? 'processing' : 'uploading',
-            };
-          }
-          return d;
-        }));
-      }, 200);
+    // Read sessionId once at call time — stable for the duration of this upload batch.
+    let currentSessionId = sessionId;
+    let anyIndexed = false;
 
-      // Complete processing after delay
-      setTimeout(() => {
-        clearInterval(interval);
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const doc = newDocs[i];
+
+      setDocuments(prev => prev.map(d =>
+        d.id === doc.id ? { ...d, status: 'processing', progress: 50 } : d
+      ));
+
+      try {
+        const result = await uploadFile(file, currentSessionId ?? undefined);
+        // Store session_id from first upload; reuse for subsequent files in this batch.
+        if (!currentSessionId) {
+          currentSessionId = result.session_id;
+          setSessionId(result.session_id);
+        }
         setDocuments(prev => prev.map(d =>
           d.id === doc.id ? { ...d, status: 'indexed', progress: 100 } : d
         ));
+        anyIndexed = true;
+      } catch (err) {
+        console.error(`[upload] Failed to upload "${file.name}":`, err);
+        setDocuments(prev => prev.map(d =>
+          d.id === doc.id ? { ...d, status: 'error', progress: 0 } : d
+        ));
+      }
+    }
 
-        // If this is the last file, mark processing as done and add welcome message
-        if (index === newDocs.length - 1) {
-          setTimeout(() => {
-            setIsProcessing(false);
-            if (messages.length === 0) {
-              setMessages([{
-                id: `msg_${Date.now()}`,
-                role: 'assistant',
-                content: 'I\'ve analyzed your documents. Ask me anything about their content — I\'ll provide answers with specific citations to the source material.',
-                timestamp: new Date(),
-              }]);
-            }
-          }, 800);
-        }
-      }, 1500 + index * 300);
-    });
-  }, [messages.length]);
+    setIsProcessing(false);
+
+    // Only show a message if at least one file was successfully indexed.
+    if (anyIndexed) {
+      setMessages(prev =>
+        prev.length === 0
+          ? [{
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: 'Your documents are ready! Ask me anything about their content — I\'ll provide answers with specific citations to the source material.',
+              timestamp: new Date(),
+            }]
+          : [...prev, {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: 'New documents added to your session. You can now ask questions about all uploaded documents together.',
+              timestamp: new Date(),
+            }]
+      );
+    }
+  }, [sessionId, isProcessing]);
 
   const handleRemoveDocument = useCallback((id: string) => {
     setDocuments(prev => prev.filter(d => d.id !== id));
@@ -144,9 +122,11 @@ function App() {
     }
   }, [documents.length]);
 
-  const handleSendMessage = useCallback((text: string) => {
+  const handleSendMessage = useCallback(async (text: string) => {
+    if (!sessionId) return;
+
     const userMessage: ChatMessageType = {
-      id: `msg_${Date.now()}`,
+      id: crypto.randomUUID(),
       role: 'user',
       content: text,
       timestamp: new Date(),
@@ -155,34 +135,71 @@ function App() {
     setMessages(prev => [...prev, userMessage]);
     setIsGenerating(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const assistantMessage: ChatMessageType = {
-        id: `msg_${Date.now()}_assistant`,
+    try {
+      const { answer } = await askQuestion(text, sessionId);
+
+      // Extract unique source filenames from inline [Source: filename] tags.
+      const uniqueFilenames = [...new Map(
+        [...answer.matchAll(/\[Source:\s*([^\]]+)\]/g)].map(m => [m[1].trim(), m[1].trim()])
+      ).values()];
+      const sources: Source[] = uniqueFilenames.map((name, i) => ({
+        id: String(i),
+        documentId: name,
+        documentName: name,
+        excerpt: '',
+        relevance: 1,
+      }));
+
+      const msgId = crypto.randomUUID();
+      setMessages(prev => [...prev, {
+        id: msgId,
         role: 'assistant',
-        content: DEMO_ANSWER,
-        sources: DEMO_SOURCES,
+        content: answer,
+        sources,
         timestamp: new Date(),
         isStreaming: true,
-      };
+      }]);
 
-      setMessages(prev => [...prev, assistantMessage]);
+      // Keep isGenerating true until streaming finishes so the input stays disabled.
+      if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
+      streamingTimerRef.current = setTimeout(() => {
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, isStreaming: false } : m));
+        setIsGenerating(false);
+      }, answer.length * 12 + 500);
+
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(),
+        role: 'assistant',
+        content: `Error: ${detail}`,
+        timestamp: new Date(),
+      }]);
       setIsGenerating(false);
-
-      // Mark streaming as complete after typewriter finishes
-      setTimeout(() => {
-        setMessages(prev =>
-          prev.map(m =>
-            m.id === assistantMessage.id ? { ...m, isStreaming: false } : m
-          )
-        );
-      }, DEMO_ANSWER.length * 12 + 500);
-    }, 1200);
-  }, []);
+    }
+  }, [sessionId]);
 
   const handleSuggestionClick = useCallback((suggestion: string) => {
     handleSendMessage(suggestion);
   }, [handleSendMessage]);
+
+  const handleStartOver = useCallback(async () => {
+    if (isProcessing || isGenerating) return;
+    if (sessionId) {
+      try {
+        await clearSession(sessionId);
+      } catch (err) {
+        // Session will expire on its own via the 15-min TTL — safe to ignore.
+        console.error('[session] Failed to clear session:', err);
+      }
+    }
+    if (streamingTimerRef.current) clearTimeout(streamingTimerRef.current);
+    setSessionId(null);
+    setDocuments([]);
+    setMessages([]);
+    setIsGenerating(false);
+    setIsProcessing(false);
+  }, [sessionId, isProcessing, isGenerating]);
 
   const hasDocuments = documents.length > 0;
   const indexedCount = documents.filter(d => d.status === 'indexed').length;
@@ -251,7 +268,7 @@ function App() {
           </div>
 
           {/* Document Content */}
-          <div className="flex-1 overflow-y-auto px-5 py-5 scrollbar-thin">
+          <div className="flex-1 overflow-y-auto px-5 py-5">
             {/* Upload Zone */}
             <DocumentUpload
               onFilesSelected={handleFilesSelected}
@@ -291,9 +308,19 @@ function App() {
                   {indexedCount} document{indexedCount !== 1 ? 's' : ''} indexed
                 </span>
               </div>
-              <span className="text-[10px] text-zinc-400 dark:text-zinc-600 font-mono">
-                v1.0.0
-              </span>
+              {sessionId ? (
+                <button
+                  onClick={handleStartOver}
+                  disabled={isProcessing || isGenerating}
+                  className="flex items-center gap-1 text-[11px] text-zinc-400 dark:text-zinc-500 hover:text-red-500 dark:hover:text-red-400 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Clear all documents and start a new session"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  Start over
+                </button>
+              ) : (
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-600 font-mono">v1.0.0</span>
+              )}
             </div>
           </div>
         </div>
@@ -336,7 +363,7 @@ function App() {
         </header>
 
         {/* Chat Area */}
-        <div className="flex-1 overflow-y-auto scrollbar-thin">
+        <div className="flex-1 overflow-y-auto">
           {messages.length === 0 ? (
             <EmptyState
               hasDocuments={hasDocuments}
